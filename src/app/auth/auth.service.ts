@@ -3,6 +3,7 @@ import { HttpClient, HttpErrorResponse } from '../../../node_modules/@angular/co
 import { catchError, tap } from '../../../node_modules/rxjs/operators';
 import { throwError, BehaviorSubject } from '../../../node_modules/rxjs';
 import { User } from './user.model';
+import { Router } from '../../../node_modules/@angular/router';
 
 export interface AuthResponseData {
     idToken: string;
@@ -17,7 +18,9 @@ export interface AuthResponseData {
 export class AuthService {
 
     user = new BehaviorSubject<User>(null);
-    constructor(private http: HttpClient) {}
+    private expirationtimer: any;
+
+    constructor(private http: HttpClient, private router: Router) {}
 
     signUp(email: string, password: string) {
         return this.http.post<AuthResponseData>('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=AIzaSyBQaKonz9S4SqSa1z7Fw9F-VSl3Zglrnic', 
@@ -46,7 +49,46 @@ export class AuthService {
         const expirationDate = new Date(new Date().getTime() + +expiresIn *1000);
         const user = new User (email, userId, token, expirationDate);
         this.user.next(user);
+        this.autoLogout(+expiresIn*1000);
+        localStorage.setItem('userData', JSON.stringify(user));
     }    
+
+    autoLogin() {
+        const userData: {
+            email: string;
+            id: string;
+            _token: string;
+            _tokenExpirationDate: string
+        } = JSON.parse(localStorage.getItem('userData'));
+
+        if(!userData) {
+            return;
+        }
+
+        const loadedUser = new User(userData.email, userData.id, userData._token, new Date(userData._tokenExpirationDate));
+
+        if(loadedUser.token) {
+            this.user.next(loadedUser);
+            const expirationTime = new Date(userData._tokenExpirationDate).getTime() - new Date().getTime();
+            this.autoLogout(expirationTime);
+        }
+    }
+
+    onLogout() {
+        this.user.next(null);
+        this.router.navigate(['/auth']);
+        localStorage.removeItem('userData');
+        if(this.expirationtimer) {
+            clearTimeout(this.expirationtimer);
+        }
+        this.expirationtimer = null;
+    }
+
+    autoLogout(expiresDuration: number) {
+        this.expirationtimer = setTimeout(() => {
+            this.onLogout();
+        }, expiresDuration);
+    }
 
     private handleError(errorRes: HttpErrorResponse) {
         let errorMessage = "An unknown error occurred!!";
